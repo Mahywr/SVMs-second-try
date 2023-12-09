@@ -1,4 +1,5 @@
-﻿/// <summary>
+﻿using SVM.VirtualMachine.Debug;
+/// <summary>
 /// Implements the Simple Virtual Machine (SVM) virtual machine 
 /// </summary>
 public sealed class SvmVirtualMachine : IVirtualMachine
@@ -22,6 +23,7 @@ public sealed class SvmVirtualMachine : IVirtualMachine
 
     public SvmVirtualMachine(string filepath)
     {
+        this.debugger = new Debugger();
         try
         {
             Compile(filepath);
@@ -52,6 +54,40 @@ public sealed class SvmVirtualMachine : IVirtualMachine
         #endregion
     }
     #endregion
+
+    private HashSet<int> breakpoints = new HashSet<int>();
+
+    private bool IsBreakpoint(int programCounter)
+    {
+        return breakpoints.Contains(programCounter);
+    }
+
+    //IDebugFrame 
+    private IDebugFrame CreateDebugFrame(IInstruction currentInstruction)
+    {
+        DebugFrame frame = new DebugFrame
+        {
+            CurrentInstruction = currentInstruction,
+            CodeFrame = GetCodeFrame(programCounter)
+        };
+
+        return frame;
+    }
+
+    private List<IInstruction> GetCodeFrame(int programCounter)
+    {
+        // Get a range of instructions around the current instruction
+        int start = Math.Max(0, programCounter - 4);
+        int end = Math.Min(program.Count, programCounter + 5);
+        return program.GetRange(start, end - start);
+    }
+
+
+
+
+
+
+
 
     #region Properties
     /// <summary>
@@ -158,6 +194,14 @@ public sealed class SvmVirtualMachine : IVirtualMachine
             {
                 IInstruction currentInstruction = program[programCounter];
                 currentInstruction.VirtualMachine = this; // Assign the current VM instance to the instruction
+
+                // Check for a breakpoint at the current instruction
+                if (debugger != null && IsBreakpoint(programCounter))
+                {
+                    IDebugFrame debugFrame = CreateDebugFrame(currentInstruction); // You need to implement this
+                    debugger.Break(debugFrame);
+                }
+
                 currentInstruction.Run(); // Execute the instruction
                 programCounter++; // Move to the next instruction
             }
@@ -172,11 +216,12 @@ public sealed class SvmVirtualMachine : IVirtualMachine
         long memUsed = System.Environment.WorkingSet;
         TimeSpan elapsed = DateTime.Now - start;
         Console.WriteLine(String.Format(
-                            "\r\n\r\nExecution finished in {0} milliseconds. Memory used = {1} bytes. Press any key to exit.",
-                            elapsed.Milliseconds,
-                            memUsed));
+            "\r\n\r\nExecution finished in {0} milliseconds. Memory used = {1} bytes. Press any key to exit.",
+            elapsed.Milliseconds, memUsed));
         Console.ReadKey();
+
     }
+
 
     /// <summary>
     /// Parses a string from a .sml file containing a single
@@ -186,8 +231,15 @@ public sealed class SvmVirtualMachine : IVirtualMachine
     /// of an instruction</param>
     private void ParseInstruction(string instruction, int lineNumber)
     {
-        #region TASK 5 & 7 - MAY REQUIRE MODIFICATION BY THE STUDENT
-        #endregion
+        // Check for breakpoint indicator
+        if (instruction.Trim().StartsWith("*"))
+        {
+            // Add the breakpoint
+            HandleBreakpoint(lineNumber);
+
+            // Remove the breakpoint indicator and continue parsing the instruction
+            instruction = instruction.Substring(1).Trim();
+        }
 
         string[] tokens = null;
         if (instruction.Contains("\""))
@@ -206,13 +258,13 @@ public sealed class SvmVirtualMachine : IVirtualMachine
             tokens = instruction.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         }
 
-
         // Ensure the correct number of operands
         if (tokens.Length > 3)
         {
             throw new SvmCompilationException(String.Format(InvalidOperandsMessage, instruction));
         }
 
+        // Compile and add the instruction to the program
         switch (tokens.Length)
         {
             case 1:
@@ -225,6 +277,12 @@ public sealed class SvmVirtualMachine : IVirtualMachine
                 program.Add(JITCompiler.CompileInstruction(tokens[0], tokens[1].Trim('\"'), tokens[2].Trim('\"')));
                 break;
         }
+    }
+
+    private void HandleBreakpoint(int lineNumber)
+    {
+        // Assuming breakpoints is a HashSet<int>
+        breakpoints.Add(lineNumber);
     }
     #endregion
 
